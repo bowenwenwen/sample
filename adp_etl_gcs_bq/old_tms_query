@@ -1,0 +1,73 @@
+select 
+        ten.id tenant_id, 
+        ten.tenant_name tenant_name, 
+        tenanttype.name tenanttype, 
+        c.solution_id solution_id, 
+        ten.short_name schema_name, 
+        inst.instance_name instance_name, 
+        env.environment_name environment_name,									
+        ten.custom_tags, 
+        wfm.db_url jdbc_url, 
+        vurl.vanity_urls, 
+        ten.creation_date, 
+        tenn.first_creation_date, 
+        replace(wfm.wfm_cluster_name,split_part(wfm.wfm_cluster_name,'-',4),split_part(wfm.db_url,'-',4)) as wfm_cluster_name, 
+        ent.ABSENCE_MANAGEMENT_ENTITLEMENT, 
+        ent.WORKFORCE_SCHEDULER_EMPLOYEE_ENTITLEMENT, 
+        ent.HOURLY_TIMEKEEPING_ENTITLEMENT, 
+        ent.CORE_ANALYTICS_ENTITLEMENT, 
+        ent.HC_ANALYTICS_ENTITLEMENT, 
+        ent.ADVANCED_SCHEDULING_ENTITLEMENT, 
+        ent.ACCRUALS_AND_LEAVES_ENTITLEMENT, 
+        ent.ACCRUALS_ENTITLEMENT, 
+        ent.SALARIED_TIMEKEEPING_ENTITLEMENT,
+        ent.OPTIMIZED_SCHEDULING_WITH_FORECASTING_ENTITLEMENT, 
+        ent.WORK_ENTITLEMENT, 
+        envCounts.prod_envs, 
+        envCounts.nonprod_envs, 
+        v.vendor_name
+        from (select solution_id, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'WORKFORCE_SCHEDULER_EMPLOYEE'), 0)  as WORKFORCE_SCHEDULER_EMPLOYEE_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'ABSENCE_MANAGEMENT'), 0)  as ABSENCE_MANAGEMENT_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'HOURLY_TIMEKEEPING'), 0)  as HOURLY_TIMEKEEPING_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'CORE_ANALYTICS'), 0)  as CORE_ANALYTICS_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'HC_ANALYTICS'), 0)  as HC_ANALYTICS_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'ADVANCED_SCHEDULING'), 0)  as ADVANCED_SCHEDULING_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'ACCRUALS_AND_LEAVES'), 0)  as ACCRUALS_AND_LEAVES_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'ACCRUALS'), 0)  as ACCRUALS_ENTITLEMENT, 
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'SALARIED_TIMEKEEPING'), 0)  as SALARIED_TIMEKEEPING_ENTITLEMENT,
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'ADVANCED_PLANNING_SCHEDULING'), 0) as OPTIMIZED_SCHEDULING_WITH_FORECASTING_ENTITLEMENT,
+                NVL(SUM(seats) FILTER (where upper(package_name) = 'WORK'), 0)  as WORK_ENTITLEMENT 
+                from tmsservice.entitlement
+                where end_date >=now()
+                and start_date <= now()
+                group by solution_id) as ent, 
+                (select tenant_id, string_agg(vanity_url, ', ') vanity_urls from tmsservice.vanity_url_details group by tenant_id) as vurl,
+                (select c.solution_id, 
+                        nvl(sum(case ttype.name when 'Customer Production' then 1 end), 0) prod_envs, 
+                        nvl(sum(case ttype.name when 'Customer Non-Production' then 1 end), 0) nonprod_envs 
+                        from tmsservice.tenant ten left outer join tmsservice.tenant_type ttype on (ten.tenant_type_id = ttype.id) 
+                        inner join tmsservice.client c on (ten.client_id = c.id) 
+                        inner join tmsservice.tenant_status tstat on (ten.tenant_status_id = tstat.id) 
+                        inner join tmsservice.vendor v on (ten.vendor_id = v.id)
+                        inner join tmsservice.wfm_cluster wfm on (ten.wfm_cluster_id = wfm.id)
+                        inner join tmsservice.instance inst on (wfm.instance_id = inst.id)
+                        inner join tmsservice.environment env on (inst.environment_id = env.id)
+                        where tstat.name = 'active' 
+                        AND v.vendor_name ilike '%'
+                        and upper(env.environment_name) not like 'NXT%'
+                        group by c.solution_id) as envCounts,
+                tmsservice.tenant ten inner join tmsservice.tenant_type ttype on (ten.tenant_type_id = ttype.id) 
+                inner join tmsservice.client c on (ten.client_id = c.id) inner join tmsservice.tenant_status tstat on (ten.tenant_status_id = tstat.id) 
+                inner join tmsservice.environment_type etype on (ttype.environment_type_id = etype.id)
+                inner join tmsservice.wfm_cluster wfm on (ten.wfm_cluster_id = wfm.id)
+                inner join tmsservice.instance inst on (wfm.instance_id = inst.id)
+                inner join tmsservice.environment env on (inst.environment_id = env.id) 
+                inner join tmsservice.vendor v on (ten.vendor_id = v.id)
+                inner join (select tenant_name, min(creation_date) first_creation_date from tmsservice.tenant group by 1) tenn on (ten.tenant_name = tenn.tenant_name)
+                inner join tmsservice.tenant_type tenanttype on (ten.tenant_type_id = tenanttype.id)
+                where ent.solution_id = c.solution_id 
+                AND c.solution_id = envCounts.solution_id
+                AND ten.id = vurl.tenant_id 
+                AND v.vendor_name ilike '%'
+                AND tstat.name = 'active'
