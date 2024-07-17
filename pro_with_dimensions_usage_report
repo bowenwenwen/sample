@@ -1,0 +1,26 @@
+USE [WFD_UsageReport]
+GO
+
+/****** Object:  View [pbi].[vw_wfd_usage_report]    Script Date: 3/12/2024 12:59:22 PM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+
+CREATE       VIEW [pbi].[vw_wfd_usage_report]
+AS
+
+with last_refresh_time as (
+	select  max(process_end_time) as last_refresh_time from tmo.log.processlog where pipeline_name = 'tmo_backend' and [status] = 'completed'
+	)
+	select  solution_id,tenant_name,ent_in_use,ent_sold,sf_cpsd.INVOICE_START_DATE__C,sf_a.ULTI_AR_NUMBER__C,sf_a.ORACLE_ACCOUNT_NUMBER__C
+,sf_a.CONVERTED_RECORD__C,sf_cpsd.LIVE_DATE__C,(select last_refresh_time from last_refresh_time) as last_refresh_time
+	from tmo.tgt.cust_data as cd (nolock) 
+	left join [G02D40USGDB02.dev.us.corp].[Salesforce_ukg].[dbo].[SF_ACCOUNT] as sf_a with (nolock) on cd.solution_id = sf_a.ORACLE_ACCOUNT_NUMBER__C
+	left join [G02D40USGDB02.dev.us.corp].[Salesforce_ukg].[dbo].[SF_CUSTOMER_PRODUCT_OFFERING_STATUS_DATES__C] as sf_cpsd (nolock) on sf_a.ID = sf_cpsd.ACCOUNT_NAME__C and sf_cpsd.PRODUCT_OFFERING__C = 'WFD'
+	where cd.solution_id like '6%' and cd.solution_id NOT LIKE '%[A-Za-z]%' and cd.solution_id not like '%-%'  and sf_a.CONVERTED_RECORD__C = 0
+GO
